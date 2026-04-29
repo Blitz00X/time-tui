@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tui-md-todo"
+version = "0.1.0"
+description = "A keyboard-driven terminal UI to-do manager backed by Markdown"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "textual>=0.47.0",
+]
+
+[project.scripts]
+todo = "todo.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["todo*"]
