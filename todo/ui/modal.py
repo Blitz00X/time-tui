@@ -102,9 +102,9 @@ class TaskModal(ModalScreen[Optional[Task]]):
             yield Label("Priority", classes="field-label")
             current_priority = self._todo_task.priority.value if editing else "medium"
             with RadioSet(id="priority-set"):
-                yield RadioButton("🔴 High",   value="high",   id="prio-high",   classes="prio-radio")
-                yield RadioButton("🟡 Medium", value="medium", id="prio-medium", classes="prio-radio")
-                yield RadioButton("🟢 Low",    value="low",    id="prio-low",    classes="prio-radio")
+                yield RadioButton(" High",   value="high",   id="prio-high",   classes="prio-radio")
+                yield RadioButton(" Medium", value="medium", id="prio-medium", classes="prio-radio")
+                yield RadioButton(" Low",    value="low",    id="prio-low",    classes="prio-radio")
 
             yield Label("Tags", classes="field-label")
             current_tags = " ".join(self._todo_task.tags) if editing and self._todo_task.tags else ""

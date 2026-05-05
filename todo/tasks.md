@@ -2,10 +2,11 @@
 
 ## 🔴 High Priority
 
+* [ ] fix ui adding issue #high @doing
 
 ## 🟡 Medium Priority
 
-* [ ] fix ui issue #medium
+* [ ] create new ui2 #medium
 
 ## 🟢 Low Priority
 

@@ -8,6 +8,8 @@ todo/models.py
 todo/parser.py
 todo/storage.py
 todo/ui/modal.py
+todo/ui/ns_modal.py
+todo/ui/pomodoro.py
 tui_md_todo.egg-info/PKG-INFO
 tui_md_todo.egg-info/SOURCES.txt
 tui_md_todo.egg-info/dependency_links.txt
