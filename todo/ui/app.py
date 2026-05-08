@@ -35,15 +35,15 @@ from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.renderables.blank import Blank
 from textual.widgets import Static
 
-from .models import Priority, Task
-from .storage import (
+from ..core.models import Priority, Task
+from ..core.storage import (
     init_if_missing, load_tasks, save_tasks,
     list_namespaces, create_namespace, namespace_path,
     root_tasks_path, delete_namespace,
 )
-from .ui.modal import TaskModal
-from .ui.ns_modal import NewNamespaceModal
-from .ui.pomodoro import PomodoroScreen
+from .modals.modal import TaskModal
+from .modals.ns_modal import NewNamespaceModal
+from .pomodoro import PomodoroScreen
 
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
@@ -141,9 +141,17 @@ TaskRow.-selected .task-text { color: $text; }
 """
 
 _STATUS = (
-    "[yellow]↑↓[/] nav  [yellow]enter[/] done  [yellow]a[/] add  [yellow]e[/] edit  "
-    "[yellow]d[/] del  [yellow]s[/] pomodoro  [yellow]f[/] filter  "
-    r"[yellow]\[/] sidebar  [yellow]N[/] namespace  [yellow]q[/]quit"
+    "[yellow]↑↓[/] nav  "
+    "[yellow]enter[/] done  "
+    "[yellow]a[/] add  "
+    "[yellow]e[/] edit  "
+    "[yellow]d[/] del  "
+    "[yellow]s[/] pomodoro  "
+    "[yellow]f[/] filter  "
+    "[yellow]⧵[/] sidebar  "
+    "[yellow]N[/] namespace  "
+    "[yellow]q[/] quit "
+    "[yellow]X[/] delete namespace"
 )
 
 _PRI_SYM = {"high": "!", "medium": "~", "low": "·"}
@@ -278,7 +286,7 @@ class TodoApp(App):
             self._ns_cursor = 0
 
     def _tasks_path_for(self, ns: str) -> Path:
-        return root_tasks_path(self._root) if ns == "root" else namespace_path(self._root, ns)
+        return namespace_path(self._root, ns)
 
     def _load_ns(self) -> None:
         self._tasks  = load_tasks(self._tasks_path_for(self._active_ns))
@@ -366,7 +374,16 @@ class TodoApp(App):
         t = self._selected()
         sel = ""
         if t:
-            mark = "[dim]✓[/]" if t.done else ("[cyan]●[/]" if t.is_doing else "[yellow]○[/]")
+            mark = (
+    "[dim]✓[/]" if t.done else
+    (
+       
+        "[red]○[/]" if t.priority == Priority.HIGH else
+        "[yellow]○[/]" if t.priority == Priority.MEDIUM else
+        "[green]○[/]"
+    )
+)
+           
             sel  = f"   {mark} {t.text[:50]}"
         self.query_one("#statusline", Static).update(_STATUS + sel)
 

@@ -9,7 +9,7 @@ from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, RadioButton, RadioSet, Static
-from ..models import Priority, Task
+from ...core.models import Priority, Task
 
 
 class TaskModal(ModalScreen[Optional[Task]]):
@@ -178,7 +178,7 @@ class TaskModal(ModalScreen[Optional[Task]]):
             task.priority = priority
             task.tags = tags
         else:
-            from ..models import Task as T
+            from ...core.models import Task as T
             task = T(text=text_input, priority=priority, tags=tags)
 
         self.dismiss(task)

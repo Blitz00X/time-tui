@@ -49,14 +49,23 @@ def delete_namespace(root: Path, name: str) -> None:
 def root_tasks_path(root: Path) -> Path:
     return root / _FILENAME
 
-def init_if_missing(root: Path | None = None) -> Path:
+def init_if_missing(
+    root: Path | None = None,
+    namespace: str = "main",
+) -> Path:
     base = root or Path.cwd()
-    p = root_tasks_path(base)
+
+    if namespace == "root":
+        namespace = "main"
+
+    p = namespace_path(base, namespace)
+
+    p.parent.mkdir(parents=True, exist_ok=True)
+
     if not p.exists():
         p.write_text(DEFAULT_TEMPLATE, encoding="utf-8")
+
     return p
-
-
 # ── generic load / save ───────────────────────────────────────────────────────
 
 def load_tasks(path: Path) -> list[Task]:
@@ -78,3 +87,19 @@ def _atomic_write(path: Path, content: str) -> None:
         try: os.unlink(tmp)
         except OSError: pass
         raise
+
+#----Gitignore ----------
+def ensure_gitignore(root: Path) -> None:
+    gitignore = root / ".gitignore"
+
+    if not gitignore.exists():
+        gitignore.write_text(".todo/\n", encoding="utf-8")
+        return
+
+    content = gitignore.read_text(encoding="utf-8")
+
+    if ".todo/" not in content:
+        with gitignore.open("a", encoding="utf-8") as f:
+            if not content.endswith("\n"):
+                f.write("\n")
+            f.write(".todo/\n")
