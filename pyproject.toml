@@ -19,3 +19,8 @@ todo = "todo.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["todo*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
