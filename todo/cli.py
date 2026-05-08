@@ -29,10 +29,10 @@ def main() -> None:
 
     root = directory or Path.cwd()
 
-    from .storage import init_if_missing
-    from .app import TodoApp
+    from .ui.app import TodoApp
+    from .core.storage import ensure_gitignore
+    ensure_gitignore(root)
 
-    init_if_missing(root)
     app = TodoApp(root=root)
     app.run()
 

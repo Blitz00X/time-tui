@@ -28,4 +28,5 @@ env/
 .idea/
 
 #Mock Data
+tui_md_todo.egg-info/
 .todo/
