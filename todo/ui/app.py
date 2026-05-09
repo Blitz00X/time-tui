@@ -278,9 +278,11 @@ class TodoApp(App):
     # ── namespace helpers ─────────────────────────────────────────────
 
     def _reload_ns(self) -> None:
-        names = list_namespaces(self._root)
+        names = [n for n in list_namespaces(self._root) if n != "root"]
         self._ns_list = ["root"] + names
+
         self._ns_cursor = min(self._ns_cursor, len(self._ns_list) - 1)
+
         if self._active_ns not in self._ns_list:
             self._active_ns = "root"
             self._ns_cursor = 0
