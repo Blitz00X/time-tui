@@ -77,11 +77,13 @@ class PomodoroScreen(Screen):
             yield Static("", id="pomo-sessions")
             yield Static("", id="pomo-status")
             yield Static(
-                "[dim]space[/] start/pause   [dim]r[/] reset   [dim]b[/] back",
+                "[dim]space[/] start/pause   [dim]r[/] reset   [dim]b[/] exit",
                 id="pomo-keys",
             )
 
     def on_mount(self) -> None:
+        self._running = True
+        self.set_timer(1.0, self._tick)
         self._draw()
 
     def _draw(self) -> None:
