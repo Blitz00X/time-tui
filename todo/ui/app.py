@@ -233,10 +233,13 @@ class TodoApp(App):
         Binding("e",            "edit_task",     show=False),
         Binding("d",            "delete_task",   show=False),
         Binding("s",            "start_pomo",    show=False),
-        Binding("f",            "cycle_filter",  show=False),
+        Binding("f",            "filter_mode",  show=False),
         Binding("N",            "new_namespace", show=False),
         Binding("X",            "del_namespace", show=False),
         Binding("q",            "quit",          show=False),
+        Binding("h",            "filter_high",   show=False),
+        Binding("t",            "filter_today", show=False),
+        Binding("p",            "filter_pending", show=False),
     ]
 
     # Fix: return proper Blank so Textual can render this screen as background
@@ -253,6 +256,7 @@ class TodoApp(App):
         self._sidebar    = False          # False = task focus, True = sidebar focus
         self._ns_list:   list[str] = []
         self._ns_cursor  = 0
+        self._pending_mode = None
         self._active_ns  = "root"
 
     # ── lifecycle ─────────────────────────────────────────────────────
@@ -274,7 +278,8 @@ class TodoApp(App):
                 yield Static("", id="pane-title")
                 yield ScrollableContainer(id="task-list")
         yield Static("", id="statusline")
-
+    
+        
     # ── namespace helpers ─────────────────────────────────────────────
 
     def _reload_ns(self) -> None:
@@ -377,15 +382,14 @@ class TodoApp(App):
         sel = ""
         if t:
             mark = (
-    "[dim]✓[/]" if t.done else
-    (
-       
-        "[red]○[/]" if t.priority == Priority.HIGH else
-        "[yellow]○[/]" if t.priority == Priority.MEDIUM else
-        "[green]○[/]"
-    )
-)
-           
+                "[dim]✓[/]" if t.done else
+                (
+                    "[red]○[/]" if t.priority == Priority.HIGH else
+                    "[yellow]○[/]" if t.priority == Priority.MEDIUM else
+                    "[green]○[/]"
+                )
+            )
+                    
             sel  = f"   {mark} {t.text[:50]}"
         self.query_one("#statusline", Static).update(_STATUS + sel)
 
@@ -396,6 +400,34 @@ class TodoApp(App):
         self._sync_sidebar()
         self._sync_list()
         self._sync_status()
+    def _clear_pending_mode(self) -> None:
+        if self._pending_mode == "filter":
+            self._pending_mode = None
+            self._sync_status()
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool:
+
+        if self._pending_mode == "filter":
+
+            mapping = {
+                "add_task": "all",
+                "delete_task": "doing",
+                "start_pomo": "today",
+                "filter_high": "high",
+                "filter_today": "today",
+                "filter_pending": "pending",
+            }
+
+            if action in mapping:
+                self._filter = mapping[action]
+                self._cursor = 0
+                self._sync_all()
+
+            self._pending_mode = None
+            self._sync_status()
+
+            return False
+
+        return True
 
     # ── actions ───────────────────────────────────────────────────────
 
@@ -453,12 +485,14 @@ class TodoApp(App):
         t = self._selected()
         self.push_screen(PomodoroScreen(task_name=t.text if t else ""))
 
-    def action_cycle_filter(self) -> None:
-        filters = ["all","pending","today","doing","high"]
-        self._filter = filters[(filters.index(self._filter) + 1) % len(filters)]
-        self._cursor = 0
-        self._sync_all()
-        self.notify(f"filter: {self._filter}", timeout=1)
+    def action_filter_mode(self) -> None:
+        self._pending_mode = "filter"
+
+        self.query_one("#statusline", Static).update(
+            "[yellow]h[/] high  [yellow]t[/] today  [yellow]d[/] doing  [yellow]p[/] pending  [yellow]a[/] all"
+        )
+
+        self.set_timer(5, self._clear_pending_mode)
 
     def action_add_task(self) -> None:
         self.push_screen(TaskModal(), callback=self._on_modal)
@@ -506,3 +540,11 @@ class TodoApp(App):
 
     def action_quit(self) -> None:
         self.exit()
+    def action_filter_high(self):
+        pass
+
+    def action_filter_today(self):
+        pass
+
+    def action_filter_pending(self):
+        pass
