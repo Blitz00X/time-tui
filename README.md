@@ -25,7 +25,7 @@ Built with [Textual](https://github.com/Textualize/textual). Inspired by lazygit
 - **Pomodoro timer** — built-in 25/5/15 min work-break timer, launched per task with `s`
 - **Priority system** — `!` high / `~` medium / `·` low, color-coded
 - **Tag support** — `@today`, `@doing`, and any custom `@tag`
-- **Filter modes** — cycle through all / pending / today / doing / high priority
+- **Interactive filter mode** — press f to open the filter selector for 5 seconds, then choose a filter using dedicated keys
 - **Atomic writes** — every save goes through a temp-file rename, no corruption on crash
 - **Zero flicker** — DOM updates are surgical (in-place for same-count rows, structural only when needed)
 - **Fully keyboard-driven** — no mouse required
@@ -33,8 +33,13 @@ Built with [Textual](https://github.com/Textualize/textual). Inspired by lazygit
 ---
 
 ## Installation
+### uv (recommended)
 
-### pipx (recommended)
+uv provides extremely fast Python package installation and environment management.
+```bash
+uv tool install tui-md-todo
+```
+### pipx 
 
 [pipx](https://pypa.github.io/pipx/) installs CLI tools into isolated environments — no virtualenv juggling.
 
@@ -88,7 +93,7 @@ On first run, `tasks.md` is created automatically with a starter template. That 
 | `e` | Edit selected task |
 | `d` | Delete selected task |
 | `s` | Open Pomodoro timer for selected task |
-| `f` | Cycle filter (all → pending → today → doing → high) |
+| `f` | filter bar (all → pending → today → doing → high) |
 | `q` | Quit |
 
 ### Sidebar (namespaces)
@@ -118,8 +123,9 @@ Press `N` inside the TUI, enter a name (e.g. `login`), and a new task list is cr
 
 ```
 myproject/
-├── tasks.md              ← root namespace (always present)
 └── .todo/
+    ├── root/
+    |   └── tasks.md             ← root namespace (always present)
     ├── login/
     │   └── tasks.md
     ├── signup/
@@ -203,19 +209,29 @@ The file is plain Markdown — edit it by hand any time. The parser is lenient a
 
 ## Project Structure
 
-```
+
+
+```text
 tui_md_todo/
-├── cli.py          # entry point → `todo` command
-├── app.py          # Textual App: layout, widgets, keybindings, actions
-├── models.py       # Task dataclass, Priority enum
-├── parser.py       # Markdown ↔ Task parser (regex-based, lenient)
-├── storage.py      # atomic file I/O + namespace management
-├── keybindings.py  # key binding constants
-└── ui/
-    ├── modal.py    # add / edit task modal
-    ├── ns_modal.py # new namespace modal
-    └── pomodoro.py # Pomodoro timer screen
+├── __init__.py
+├── cli.py                 # CLI entry point → `todo`
+├── core/
+│   ├── keybindings.py     # key mappings and action constants
+│   ├── models.py          # Task dataclass and priority models
+│   ├── parser.py          # Markdown ↔ task parser
+│   └── storage.py         # atomic file handling + namespace storage
+├── ui/
+│   ├── app.py             # main Textual application
+│   ├── pomodoro.py        # Pomodoro timer screen
+│   └── modals/
+│       ├── modal.py       # add/edit task modal
+│       └── ns_modal.py    # namespace creation modal
+└── tests/
+    ├── test_models.py
+    ├── test_parser.py
+    └── test_storage.py
 ```
+
 ## Contributing
 
 Issues and PRs are welcome.
@@ -252,17 +268,7 @@ mypy .          # type check
 
 ---
 
-## Roadmap
 
-- [ ] Due dates (`@due:2024-12-31`)
-- [ ] Recurring tasks
-- [ ] `--export` to print tasks as a formatted table / JSON
-- [ ] Config file (`~/.config/tui-md-todo/config.toml`) for colours and key bindings
-- [ ] Mouse support (click to select, double-click to toggle)
-- [ ] Git auto-commit on save (opt-in)
-- [ ] `todo sync` — push/pull `tasks.md` via git remote
-
----
 
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
