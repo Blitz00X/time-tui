@@ -33,34 +33,28 @@ Built with [Textual](https://github.com/Textualize/textual). Inspired by lazygit
 ---
 
 ## Installation
+
 ### uv (recommended)
 
-uv provides extremely fast Python package installation and environment management.
-```bash
-uv tool install tui-md-todo
-```
-### pipx 
 
-[pipx](https://pypa.github.io/pipx/) installs CLI tools into isolated environments — no virtualenv juggling.
 
 ```bash
-pipx install tui-md-todo
+uv tool install git+https://github.com/Advaithdp02/Todo_tui.git
 ```
 
-### pip
+### pipx
 
 ```bash
-pip install tui-md-todo
+pipx install git+https://github.com/Advaithdp02/Todo_tui.git
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/yourname/tui-md-todo
-cd tui-md-todo
+git clone https://github.com/Advaithdp02/Todo_tui.git
+cd Todo_tui
 pip install -e .
 ```
-
 ### Requirements
 
 - Python 3.10+
