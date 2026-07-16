@@ -93,7 +93,7 @@ def ensure_gitignore(root: Path) -> None:
     gitignore = root / ".gitignore"
 
     if not gitignore.exists():
-        gitignore.write_text(".todo/\n", encoding="utf-8")
+        gitignore.write_text(".todo/\n.time-tui/\n", encoding="utf-8")
         return
 
     content = gitignore.read_text(encoding="utf-8")
@@ -103,3 +103,11 @@ def ensure_gitignore(root: Path) -> None:
             if not content.endswith("\n"):
                 f.write("\n")
             f.write(".todo/\n")
+            content = gitignore.read_text(encoding="utf-8")
+
+    if ".time-tui/" not in content:
+        with gitignore.open("a", encoding="utf-8") as f:
+            content = gitignore.read_text(encoding="utf-8")
+            if not content.endswith("\n"):
+                f.write("\n")
+            f.write(".time-tui/\n")

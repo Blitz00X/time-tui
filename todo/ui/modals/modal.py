@@ -15,6 +15,8 @@ from ...core.models import Priority, Task
 class TaskModal(ModalScreen[Optional[Task]]):
     """Centered modal for creating or editing a task."""
 
+    _FOCUS_ORDER = ("task-text", "priority-set", "task-tags", "btn-cancel", "btn-save")
+
     DEFAULT_CSS = """
     TaskModal {
         align: center middle;
@@ -79,6 +81,8 @@ class TaskModal(ModalScreen[Optional[Task]]):
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
+        Binding("down", "focus_next_field", show=False, priority=True),
+        Binding("up", "focus_prev_field", show=False, priority=True),
     ]
 
     def __init__(self, todo_task: Optional[Task] = None) -> None:
@@ -128,6 +132,29 @@ class TaskModal(ModalScreen[Optional[Task]]):
                 btn.value = True
                 break
         self.query_one("#task-text", Input).focus()
+
+    def _focused_field_id(self) -> str:
+        focused = self.focused
+        if focused is None:
+            return self._FOCUS_ORDER[0]
+        if isinstance(focused, RadioButton):
+            return "priority-set"
+        return focused.id or self._FOCUS_ORDER[0]
+
+    def _move_focus(self, step: int) -> None:
+        current_id = self._focused_field_id()
+        try:
+            index = self._FOCUS_ORDER.index(current_id)
+        except ValueError:
+            index = 0
+        next_index = max(0, min(len(self._FOCUS_ORDER) - 1, index + step))
+        self.query_one(f"#{self._FOCUS_ORDER[next_index]}").focus()
+
+    def action_focus_next_field(self) -> None:
+        self._move_focus(1)
+
+    def action_focus_prev_field(self) -> None:
+        self._move_focus(-1)
 
     # ── button handlers ───────────────────────────────────────────────────────
 

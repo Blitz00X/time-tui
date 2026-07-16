@@ -29,14 +29,13 @@ def main() -> None:
 
     root = directory or Path.cwd()
 
-    from .ui.app import TodoApp
-    from .core.storage import ensure_gitignore
-    ensure_gitignore(root)
+    from todo.ui.app import TodoApp
+    from todo.core.storage import ensure_gitignore
 
+    ensure_gitignore(root)
     app = TodoApp(root=root)
     app.run()
 
 
 if __name__ == "__main__":
     main()
-

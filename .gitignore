@@ -30,3 +30,4 @@ env/
 #Mock Data
 tui_md_todo.egg-info/
 .todo/
+.time-tui/
