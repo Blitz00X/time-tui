@@ -99,6 +99,19 @@ On first run, `tasks.md` is created automatically with a starter template. That 
 | `N` | Create new namespace |
 | `X` | Delete current namespace |
 
+### Full-screen calendar
+
+| Key | Action |
+|-----|--------|
+| `Shift+C` | Open the full-screen calendar from the dashboard |
+| `D` / `W` / `M` | Switch between Day, Week, and Month views |
+| `←` / `→` | Previous / next day, week, or month |
+| `T` | Jump to today |
+| `A` | Add an event to the selected date |
+| `Esc` | Return to the dashboard |
+
+The dashboard calendar also has an `Expand` button for mouse users.
+
 ### Pomodoro screen
 
 | Key | Action |

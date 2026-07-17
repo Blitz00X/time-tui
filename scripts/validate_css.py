@@ -1,30 +1,31 @@
 #!/usr/bin/env python3
-"""Validate TimeTuiApp CSS; print errors to stdout."""
+"""Validate TimeTuiApp CSS through Textual's runtime compiler."""
 from __future__ import annotations
 
+import asyncio
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from textual.css._help_renderables import HelpText
-from textual.css.parse import parse
-from todo.ui.dashboard_screen import APP_CSS
+from todo.ui.dashboard_screen import TimeTuiApp
 
-css_path = ROOT / "todo/ui/dashboard_screen.py"
-read_from = (str(css_path), "TimeTuiApp.CSS")
-rules = list(parse("TimeTuiApp", APP_CSS, read_from))
-errors = []
-for rule in rules:
-    for tok, msg in rule.errors:
-        text = msg.summary if isinstance(msg, HelpText) else str(msg)
-        errors.append(f"{text} @ line {tok.location[0] + 1}")
 
-if errors:
-    print("FAIL", len(errors))
-    for e in errors:
-        print(e)
-    sys.exit(1)
-print("OK", len(rules), "rules")
-sys.exit(0)
+async def validate() -> None:
+    with tempfile.TemporaryDirectory(prefix="time-tui-css-") as temp_dir:
+        app = TimeTuiApp(Path(temp_dir))
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            if app.screen is None:
+                raise RuntimeError("dashboard did not mount")
+
+
+try:
+    asyncio.run(validate())
+except Exception as exc:
+    print(f"FAIL runtime CSS validation: {exc}")
+    raise
+
+print("OK runtime CSS compiled and dashboard mounted")

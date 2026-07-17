@@ -43,6 +43,7 @@ from .modals.event_modal import EventFormResult, EventModal
 from .modals.modal import TaskModal
 from .modals.ns_modal import NewNamespaceModal
 from .modals.session_modal import SessionFormResult, SessionModal
+from .full_calendar_screen import CalendarView, FullCalendarResult, FullCalendarScreen
 
 Pane = Literal["namespaces", "tasks", "tags", "calendar", "tracker"]
 TrKind = Literal["timer", "stopwatch", "pomodoro"]
@@ -187,6 +188,23 @@ Screen { background: $background; }
     color: $primary;
     padding: 0 1;
     content-align: left middle;
+}
+#cal-foot {
+    height: 1;
+    layout: horizontal;
+}
+#cal-add-hint {
+    width: 1fr;
+    height: 1;
+}
+#cal-expand {
+    width: 12;
+    min-width: 12;
+    height: 1;
+    min-height: 1;
+    border: none;
+    padding: 0 1;
+    margin: 0;
 }
 .pane-scroll {
     height: 1fr;
@@ -436,6 +454,7 @@ class TimeTuiApp(App):
         Binding("]", "cal_tab_next", show=False),
         Binding("t", "focus_tracker", show=False),
         Binding("c", "focus_calendar", show=False),
+        Binding("C", "expand_calendar", show=False),
         Binding("n", "focus_namespaces", show=False),
         Binding("N", "new_namespace", show=False),
         Binding("X", "del_namespace", show=False),
@@ -458,7 +477,7 @@ class TimeTuiApp(App):
         self._pane: Pane = "tasks"
         self._tag_rows: list[tuple[str, int]] = []
         self._tag_cursor = 0
-        self._cal_tab = "day"
+        self._cal_tab: CalendarView = "day"
         self._cal_date = date.today()
         self._cal_day_start_hour = CAL_DAY_DEFAULT_START_HOUR
         self._tr_kind: TrKind = "pomodoro"
@@ -503,7 +522,9 @@ class TimeTuiApp(App):
                     with Vertical(id="pane-cal"):
                         yield Static("  calendar", classes="pane-title", id="title-cal")
                         yield ScrollableContainer(Static("", id="cal-inner"), classes="pane-scroll")
-                        yield Static("  + add event", classes="pane-foot")
+                        with Horizontal(id="cal-foot", classes="pane-foot"):
+                            yield Static("+ add event", id="cal-add-hint")
+                            yield Button("⛶ Expand", id="cal-expand", variant="primary")
                     with Vertical(id="pane-trk"):
                         yield Static("  tracker", classes="pane-title", id="title-trk")
                         yield Static("", id="trk-tabs")
@@ -1217,6 +1238,30 @@ class TimeTuiApp(App):
         self._pane = "calendar"
         self._sync_everything()
 
+    def action_expand_calendar(self) -> None:
+        self.push_screen(
+            FullCalendarScreen(
+                self._root,
+                selected_date=self._cal_date,
+                initial_view=self._cal_tab,
+                day_start_hour=self._cal_day_start_hour,
+            ),
+            callback=self._on_full_calendar_closed,
+        )
+
+    def _on_full_calendar_closed(self, result: Optional[FullCalendarResult]) -> None:
+        if result is None:
+            return
+        self._cal_date = result.selected_date
+        self._cal_tab = result.view
+        self._cal_tab_cursor = CAL_TABS.index(result.view)
+        self._cal_day_start_hour = result.day_start_hour
+        self._sync_everything()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cal-expand":
+            self.action_expand_calendar()
+
     def action_focus_tracker(self) -> None:
         self._pane = "tracker"
         self._sync_everything()
@@ -1236,7 +1281,10 @@ class TimeTuiApp(App):
         self._cycle_pane(-1)
         self._sync_everything()
 
-    def action_cursor_right(self) -> None:
+    async def action_cursor_right(self) -> None:
+        if isinstance(self.screen, FullCalendarScreen):
+            await self.screen.action_next_period()
+            return
         if self._pane_has_inner_focus():
             if self._pane == "namespaces":
                 self._active_ns = self._ns_list[self._ns_cursor]
@@ -1257,7 +1305,10 @@ class TimeTuiApp(App):
             self._cycle_pane(1)
         self._sync_everything()
 
-    def action_cursor_left(self) -> None:
+    async def action_cursor_left(self) -> None:
+        if isinstance(self.screen, FullCalendarScreen):
+            await self.screen.action_previous_period()
+            return
         if self._pane_has_inner_focus():
             if self._pane == "tasks":
                 self._pane = "namespaces"
