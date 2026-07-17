@@ -196,8 +196,12 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
         Binding("m", "month_view", show=False, priority=True),
         Binding("t", "today", show=False, priority=True),
         Binding("a", "add_event", show=False, priority=True),
-        Binding("up", "ignore", show=False, priority=True),
-        Binding("down", "ignore", show=False, priority=True),
+        Binding("up", "scroll_up", show=False, priority=True),
+        Binding("down", "scroll_down", show=False, priority=True),
+        Binding("pageup", "scroll_page_up", show=False, priority=True),
+        Binding("pagedown", "scroll_page_down", show=False, priority=True),
+        Binding("home", "scroll_home", show=False, priority=True),
+        Binding("end", "scroll_end", show=False, priority=True),
         Binding("tab", "ignore", show=False, priority=True),
         Binding("shift+tab", "ignore", show=False, priority=True),
         Binding("enter", "ignore", show=False, priority=True),
@@ -432,6 +436,47 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
 
     def action_ignore(self) -> None:
         """Consume dashboard-only bindings while this screen is active."""
+
+    def _active_scroll(self) -> ScrollableContainer:
+        return self.query_one(f"#fc-{self.view}-scroll", ScrollableContainer)
+
+    def action_scroll_up(self) -> None:
+        self._active_scroll().scroll_relative(
+            y=-2,
+            animate=False,
+            force=True,
+            immediate=True,
+        )
+
+    def action_scroll_down(self) -> None:
+        self._active_scroll().scroll_relative(
+            y=2,
+            animate=False,
+            force=True,
+            immediate=True,
+        )
+
+    def action_scroll_page_up(self) -> None:
+        self._active_scroll().scroll_page_up(animate=False, force=True)
+
+    def action_scroll_page_down(self) -> None:
+        self._active_scroll().scroll_page_down(animate=False, force=True)
+
+    def action_scroll_home(self) -> None:
+        self._active_scroll().scroll_home(
+            animate=False,
+            force=True,
+            immediate=True,
+            x_axis=False,
+        )
+
+    def action_scroll_end(self) -> None:
+        self._active_scroll().scroll_end(
+            animate=False,
+            force=True,
+            immediate=True,
+            x_axis=False,
+        )
 
     async def _set_view(self, view: CalendarView) -> None:
         self.view = view

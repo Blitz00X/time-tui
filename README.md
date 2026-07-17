@@ -106,6 +106,8 @@ On first run, `tasks.md` is created automatically with a starter template. That 
 | `Shift+C` | Open the full-screen calendar from the dashboard |
 | `D` / `W` / `M` | Switch between Day, Week, and Month views |
 | `←` / `→` | Previous / next day, week, or month |
+| `↑` / `↓`, `PgUp` / `PgDn` | Scroll the active calendar view |
+| `Home` / `End` | Jump to the top / bottom of the active view |
 | `T` | Jump to today |
 | `A` | Add an event to the selected date |
 | `Esc` | Return to the dashboard |

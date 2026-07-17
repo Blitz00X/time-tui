@@ -133,6 +133,15 @@ def test_month_view_scrolls_on_standard_80x24_terminal(tmp_path: Path):
             assert len(screen.query(".fc-month-cell")) == 42
             assert cast(Static, screen.query_one("#fc-title")).content == "Jul 2026"
 
+            await pilot.press("pagedown")
+            assert month_scroll.scroll_y > 0
+            await pilot.press("end")
+            assert month_scroll.scroll_y == month_scroll.max_scroll_y
+            await pilot.press("home")
+            assert month_scroll.scroll_y == 0
+            await pilot.press("down")
+            assert month_scroll.scroll_y > 0
+
     asyncio.run(run())
 
 
