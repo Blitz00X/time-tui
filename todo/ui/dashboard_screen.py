@@ -1239,6 +1239,8 @@ class TimeTuiApp(App):
         self._sync_everything()
 
     def action_expand_calendar(self) -> None:
+        if isinstance(self.screen, FullCalendarScreen):
+            return
         self.push_screen(
             FullCalendarScreen(
                 self._root,
@@ -1270,12 +1272,16 @@ class TimeTuiApp(App):
         self.push_screen(SearchModal(self._search_query), callback=self._on_search)
 
     def action_tab_next_pane(self) -> None:
+        if isinstance(self.screen, FullCalendarScreen):
+            return
         if self._pane_has_inner_focus():
             self._exit_inner_focus()
         self._cycle_pane(1)
         self._sync_everything()
 
     def action_tab_prev_pane(self) -> None:
+        if isinstance(self.screen, FullCalendarScreen):
+            return
         if self._pane_has_inner_focus():
             self._exit_inner_focus()
         self._cycle_pane(-1)

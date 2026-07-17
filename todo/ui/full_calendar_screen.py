@@ -17,7 +17,9 @@ from ..core.dashboard_io import (
     CalendarEvent,
     event_from_form,
     format_duration,
+    hm_total_min,
     insert_event,
+    load_event_calendar,
     load_events,
 )
 from .modals.event_modal import EventFormResult, EventModal
@@ -66,7 +68,7 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
         align: left middle;
     }
 
-    #fc-back { width: 12; margin-right: 1; }
+    #fc-back { width: 9; min-width: 9; margin-right: 1; }
     #fc-title {
         width: 1fr;
         height: 3;
@@ -74,8 +76,8 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
         color: $text;
         text-style: bold;
     }
-    #fc-prev, #fc-next { width: 7; }
-    #fc-today { width: 11; margin: 0 1; }
+    #fc-prev, #fc-next { width: 7; min-width: 7; }
+    #fc-today { width: 11; min-width: 11; margin: 0 1; }
 
     #fc-tabs {
         height: 3;
@@ -83,7 +85,7 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
         padding-left: 13;
         border-bottom: solid $primary-darken-2;
     }
-    .fc-tab { width: 12; }
+    .fc-tab { width: 12; min-width: 12; }
     .fc-tab.-active {
         background: $primary;
         color: $text;
@@ -103,7 +105,7 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
         background: $surface-darken-2;
     }
 
-    #fc-day-scroll, #fc-week-scroll {
+    #fc-day-scroll, #fc-week-scroll, #fc-month-scroll {
         height: 1fr;
         scrollbar-size: 1 1;
     }
@@ -153,8 +155,13 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
         border-bottom: solid $surface-lighten-1;
         text-overflow: ellipsis;
     }
+    .fc-event-block { text-style: bold; }
+    .fc-event-green { background: green 15%; }
+    .fc-event-blue { background: blue 20%; }
+    .fc-event-yellow { background: yellow 12%; }
+    .fc-event-purple { background: purple 18%; }
 
-    #fc-month-view { height: 1fr; }
+    #fc-month-view { height: 1fr; min-height: 26; }
     #fc-month-weekdays { height: 2; }
     .fc-month-weekday {
         width: 1fr;
@@ -189,6 +196,29 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
         Binding("m", "month_view", show=False, priority=True),
         Binding("t", "today", show=False, priority=True),
         Binding("a", "add_event", show=False, priority=True),
+        Binding("up", "ignore", show=False, priority=True),
+        Binding("down", "ignore", show=False, priority=True),
+        Binding("tab", "ignore", show=False, priority=True),
+        Binding("shift+tab", "ignore", show=False, priority=True),
+        Binding("enter", "ignore", show=False, priority=True),
+        Binding("e", "ignore", show=False, priority=True),
+        Binding("s", "ignore", show=False, priority=True),
+        Binding("f", "ignore", show=False, priority=True),
+        Binding("slash", "ignore", show=False, priority=True),
+        Binding("comma", "ignore", show=False, priority=True),
+        Binding(".", "ignore", show=False, priority=True),
+        Binding("[", "ignore", show=False, priority=True),
+        Binding("]", "ignore", show=False, priority=True),
+        Binding("c", "ignore", show=False, priority=True),
+        Binding("C", "ignore", show=False, priority=True),
+        Binding("n", "ignore", show=False, priority=True),
+        Binding("N", "ignore", show=False, priority=True),
+        Binding("X", "ignore", show=False, priority=True),
+        Binding("r", "ignore", show=False, priority=True),
+        Binding("1", "ignore", show=False, priority=True),
+        Binding("2", "ignore", show=False, priority=True),
+        Binding("3", "ignore", show=False, priority=True),
+        Binding("q", "close_calendar", show=False, priority=True),
     ]
 
     def __init__(
@@ -208,7 +238,7 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
     def compose(self) -> ComposeResult:
         with Vertical(id="fc-shell"):
             with Horizontal(id="fc-toolbar"):
-                yield Button("← Dashboard", id="fc-back")
+                yield Button("← Back", id="fc-back")
                 yield Static("", id="fc-title")
                 yield Button("‹", id="fc-prev")
                 yield Button("Today", id="fc-today")
@@ -227,6 +257,13 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
         await self._refresh_view()
 
     def _title_text(self) -> str:
+        if self.size.width < 100:
+            if self.view == "day":
+                return self.selected_date.strftime("%d %b %Y")
+            if self.view == "week":
+                iso_year, iso_week, _ = self.selected_date.isocalendar()
+                return f"W{iso_week} {iso_year}"
+            return self.selected_date.strftime("%b %Y")
         if self.view == "day":
             return self.selected_date.strftime("%A, %B %d, %Y")
         if self.view == "week":
@@ -234,6 +271,11 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
             end = start + timedelta(days=6)
             if start.month == end.month:
                 return f"{month_name[start.month]} {start.day} - {end.day}, {start.year}"
+            if start.year != end.year:
+                return (
+                    f"{month_name[start.month]} {start.day}, {start.year} - "
+                    f"{month_name[end.month]} {end.day}, {end.year}"
+                )
             return f"{month_name[start.month]} {start.day} - {month_name[end.month]} {end.day}, {end.year}"
         return f"{month_name[self.selected_date.month]} {self.selected_date.year}"
 
@@ -242,17 +284,52 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
         prefix = f"{event.start} " if include_time else ""
         return f"[{color}]▌ {prefix}{event.title}[/]"
 
+    def _events_overlapping_hour(
+        self,
+        events: list[CalendarEvent],
+        hour: int,
+    ) -> list[CalendarEvent]:
+        hour_start = hour * 60
+        hour_end = hour_start + 60
+        return [
+            event
+            for event in events
+            if hm_total_min(event.start) < hour_end and hm_total_min(event.end) > hour_start
+        ]
+
+    def _hour_block(
+        self,
+        events: list[CalendarEvent],
+        hour: int,
+        *,
+        include_time: bool,
+    ) -> tuple[str, str]:
+        overlapping = self._events_overlapping_hour(events, hour)
+        if not overlapping:
+            return "", ""
+        chunks: list[str] = []
+        for event in overlapping:
+            starts_here = hm_total_min(event.start) // 60 == hour
+            if starts_here:
+                chunks.append(
+                    f"{self._event_markup(event, include_time=include_time)} "
+                    f"[dim]({format_duration(event.start, event.end)})[/]"
+                )
+            else:
+                color = EVENT_COLORS.get(event.color, "green")
+                chunks.append(f"[{color}]▌ │[/]")
+        return " ".join(chunks), f"fc-event-block fc-event-{overlapping[0].color}"
+
     def _build_day_view(self) -> ScrollableContainer:
         rows: list[Static] = []
         events = load_events(self._root, self.selected_date.isoformat())
-        by_hour: dict[int, list[CalendarEvent]] = {hour: [] for hour in range(24)}
-        for event in events:
-            by_hour[int(event.start.split(":", 1)[0])].append(event)
         for hour in range(24):
-            event_text = "   ".join(self._event_markup(event) for event in by_hour[hour])
+            event_text, event_classes = self._hour_block(events, hour, include_time=True)
             line = f"[dim]{hour:02d}:00[/]   {event_text}"
             classes = "fc-day-hour"
-            if self.selected_date == date.today() and hour == self.day_start_hour:
+            if event_classes:
+                classes += " " + event_classes
+            if hour == self.day_start_hour:
                 classes += " -selected"
             rows.append(Static(line, classes=classes))
         return ScrollableContainer(Vertical(*rows, id="fc-day-view"), id="fc-day-scroll")
@@ -268,19 +345,16 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
         for offset in range(7):
             current = week_start + timedelta(days=offset)
             events = load_events(self._root, current.isoformat())
-            by_hour: dict[int, list[CalendarEvent]] = {hour: [] for hour in range(24)}
-            for event in events:
-                by_hour[int(event.start.split(":", 1)[0])].append(event)
             head_classes = "fc-week-head"
             if current == date.today():
                 head_classes += " -today"
             slots = []
             for hour in range(24):
-                text = " ".join(
-                    self._event_markup(event, include_time=False)
-                    for event in by_hour[hour]
-                )
-                slots.append(Static(text, classes="fc-week-slot"))
+                text, event_classes = self._hour_block(events, hour, include_time=False)
+                classes = "fc-week-slot"
+                if event_classes:
+                    classes += " " + event_classes
+                slots.append(Static(text, classes=classes))
             day_classes = "fc-week-day"
             if current == self.selected_date:
                 day_classes += " -selected"
@@ -304,7 +378,8 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
             weeks.append([start + timedelta(days=i) for i in range(7)])
         return [day for week in weeks[:6] for day in week]
 
-    def _build_month_view(self) -> Vertical:
+    def _build_month_view(self) -> ScrollableContainer:
+        event_calendar = load_event_calendar(self._root)
         weekday_row = Horizontal(
             *(Static(label, classes="fc-month-weekday") for label in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")),
             id="fc-month-weekdays",
@@ -314,7 +389,7 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
         for week_index in range(6):
             cells: list[Static] = []
             for current in dates[week_index * 7 : (week_index + 1) * 7]:
-                events = load_events(self._root, current.isoformat())
+                events = event_calendar.get(current.isoformat(), [])
                 lines = [f"[bold]{current.day}[/]"]
                 for event in events[:2]:
                     lines.append(self._event_markup(event))
@@ -329,7 +404,8 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
                     classes += " -selected"
                 cells.append(Static("\n".join(lines), classes=classes))
             week_rows.append(Horizontal(*cells, classes="fc-month-week"))
-        return Vertical(weekday_row, *week_rows, id="fc-month-view")
+        month_view = Vertical(weekday_row, *week_rows, id="fc-month-view")
+        return ScrollableContainer(month_view, id="fc-month-scroll")
 
     async def _refresh_view(self) -> None:
         self.query_one("#fc-title", Static).update(self._title_text())
@@ -339,10 +415,23 @@ class FullCalendarScreen(Screen[FullCalendarResult]):
         await content.remove_children()
         if self.view == "day":
             await content.mount(self._build_day_view())
+            self.call_after_refresh(self._scroll_day_to_start)
         elif self.view == "week":
             await content.mount(self._build_week_view())
         else:
             await content.mount(self._build_month_view())
+
+    def _scroll_day_to_start(self) -> None:
+        day_scroll = self.query_one("#fc-day-scroll", ScrollableContainer)
+        day_scroll.scroll_to(
+            y=self.day_start_hour * 2,
+            animate=False,
+            force=True,
+            immediate=True,
+        )
+
+    def action_ignore(self) -> None:
+        """Consume dashboard-only bindings while this screen is active."""
 
     async def _set_view(self, view: CalendarView) -> None:
         self.view = view

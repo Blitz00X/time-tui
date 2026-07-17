@@ -95,3 +95,89 @@ def test_full_calendar_displays_events_in_week_and_month(tmp_path: Path):
             assert "Design review" in month_text
 
     asyncio.run(run())
+
+
+def test_full_calendar_blocks_dashboard_bindings(tmp_path: Path):
+    async def run() -> None:
+        app = TimeTuiApp(tmp_path)
+
+        async with app.run_test(size=(120, 36)) as pilot:
+            await pilot.click("#cal-expand")
+            screen = app.screen
+            assert isinstance(screen, FullCalendarScreen)
+            initial_state = (app._pane, app._filter, app._tr_running, app._cursor)
+
+            for key in ("e", "s", "f", "n", "c", "C", "down", "tab"):
+                await pilot.press(key)
+                assert app.screen is screen
+                assert (app._pane, app._filter, app._tr_running, app._cursor) == initial_state
+
+    asyncio.run(run())
+
+
+def test_month_view_scrolls_on_standard_80x24_terminal(tmp_path: Path):
+    async def run() -> None:
+        app = TimeTuiApp(tmp_path)
+
+        async with app.run_test(size=(80, 24)) as pilot:
+            screen = FullCalendarScreen(
+                tmp_path,
+                selected_date=date(2026, 7, 17),
+                initial_view="month",
+            )
+            app.push_screen(screen)
+            await pilot.pause()
+
+            month_scroll = screen.query_one("#fc-month-scroll")
+            assert month_scroll.max_scroll_y > 0
+            assert len(screen.query(".fc-month-cell")) == 42
+            assert cast(Static, screen.query_one("#fc-title")).content == "Jul 2026"
+
+    asyncio.run(run())
+
+
+def test_day_view_opens_at_transferred_start_hour(tmp_path: Path):
+    async def run() -> None:
+        app = TimeTuiApp(tmp_path)
+
+        async with app.run_test(size=(100, 30)) as pilot:
+            screen = FullCalendarScreen(
+                tmp_path,
+                selected_date=date(2026, 7, 17),
+                initial_view="day",
+                day_start_hour=8,
+            )
+            app.push_screen(screen)
+            await pilot.pause()
+
+            day_scroll = screen.query_one("#fc-day-scroll")
+            assert day_scroll.scroll_y >= 15
+
+    asyncio.run(run())
+
+
+def test_day_and_week_events_span_their_duration(tmp_path: Path):
+    event_day = date(2026, 7, 17)
+    insert_event(
+        tmp_path,
+        event_day.isoformat(),
+        CalendarEvent("09:00", "11:00", "Architecture", "purple"),
+    )
+
+    async def run() -> None:
+        app = TimeTuiApp(tmp_path)
+
+        async with app.run_test(size=(140, 44)) as pilot:
+            screen = FullCalendarScreen(
+                tmp_path,
+                selected_date=event_day,
+                initial_view="week",
+            )
+            app.push_screen(screen)
+            await pilot.pause()
+            assert len(screen.query(".fc-event-block")) == 2
+
+            await pilot.press("d")
+            assert len(screen.query(".fc-event-block")) == 2
+
+    asyncio.run(run())

@@ -136,20 +136,35 @@ def format_duration(start: str, end: str) -> str:
     return f"{mins}m"
 
 
-def load_events(root: Path, iso_day: str) -> list[CalendarEvent]:
+def load_event_calendar(root: Path) -> dict[str, list[CalendarEvent]]:
     ensure_dashboard(root)
     try:
         data = json.loads(calendar_file(root).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         data = {}
-    rows = data.get(iso_day) or []
-    out: list[CalendarEvent] = []
-    for r in rows:
-        try:
-            out.append(CalendarEvent(r["start"], r["end"], r["title"], r.get("color", "green")))
-        except KeyError:
-            continue
-    return sorted(out, key=lambda e: hm_total_min(e.start))
+    if not isinstance(data, dict):
+        data = {}
+    calendar: dict[str, list[CalendarEvent]] = {}
+    for iso_day, rows in data.items():
+        events: list[CalendarEvent] = []
+        for row in rows or []:
+            try:
+                events.append(
+                    CalendarEvent(
+                        row["start"],
+                        row["end"],
+                        row["title"],
+                        row.get("color", "green"),
+                    )
+                )
+            except (KeyError, TypeError):
+                continue
+        calendar[iso_day] = sorted(events, key=lambda event: hm_total_min(event.start))
+    return calendar
+
+
+def load_events(root: Path, iso_day: str) -> list[CalendarEvent]:
+    return load_event_calendar(root).get(iso_day, [])
 
 
 def save_events(root: Path, iso_day: str, events: list[CalendarEvent]) -> None:
