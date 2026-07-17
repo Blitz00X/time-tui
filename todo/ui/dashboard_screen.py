@@ -55,6 +55,10 @@ POMO_LEN = 25 * 60
 WEEKDAY = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 COLOR_MAP = {"green": "green", "blue": "blue", "yellow": "yellow", "purple": "purple"}
 CAL_TABS = ("day", "week", "month")
+CAL_DAY_DEFAULT_START_HOUR = 8
+CAL_DAY_VISIBLE_HOURS = 11
+CAL_DAY_MIN_START_HOUR = 0
+CAL_DAY_MAX_START_HOUR = 24 - CAL_DAY_VISIBLE_HOURS
 TR_KIND_ORDER = ("timer", "stopwatch", "pomodoro")
 TR_CONTROL_ORDER = ("start", "reset", "done")
 
@@ -456,6 +460,7 @@ class TimeTuiApp(App):
         self._tag_cursor = 0
         self._cal_tab = "day"
         self._cal_date = date.today()
+        self._cal_day_start_hour = CAL_DAY_DEFAULT_START_HOUR
         self._tr_kind: TrKind = "pomodoro"
         self._tr_running = False
         self._tr_remain_s = POMO_LEN
@@ -631,12 +636,16 @@ class TimeTuiApp(App):
         if self._cal_inner_row == "events":
             if self._cal_events and self._cal_event_cursor > 0:
                 self._cal_event_cursor -= 1
+            elif self._cal_tab == "day" and self._cal_day_start_hour > CAL_DAY_MIN_START_HOUR:
+                self._cal_day_start_hour -= 1
             else:
                 self._cal_inner_row = "tabs"
 
     def _cal_event_down(self) -> None:
         if self._cal_events and self._cal_event_cursor < len(self._cal_events) - 1:
             self._cal_event_cursor += 1
+        elif self._cal_tab == "day" and self._cal_day_start_hour < CAL_DAY_MAX_START_HOUR:
+            self._cal_day_start_hour += 1
 
     def _tracker_in_sessions(self) -> bool:
         return (
@@ -892,23 +901,26 @@ class TimeTuiApp(App):
             lines.append("")
 
         selected = self._calendar_in_events()
-        flat_idx = 0
-        for hh in range(8, 19):
+        stop_hour = self._cal_day_start_hour + CAL_DAY_VISIBLE_HOURS
+        for hh in range(self._cal_day_start_hour, stop_hour):
             lbl = f"{hh:02d}:00"
-            hour_events = [ev for ev in self._cal_events if hm_total_min(ev.start) // 60 == hh]
+            hour_events = [
+                (event_idx, ev)
+                for event_idx, ev in enumerate(self._cal_events)
+                if hm_total_min(ev.start) // 60 == hh
+            ]
             if not hour_events:
                 lines.append(f"[dim]{lbl}[/]")
                 continue
-            for idx, ev in enumerate(hour_events):
-                prefix = f"[dim]{lbl}[/]  " if idx == 0 else "      "
+            for row_idx, (event_idx, ev) in enumerate(hour_events):
+                prefix = f"[dim]{lbl}[/]  " if row_idx == 0 else "      "
                 lines.append(
                     self._format_cal_event_line(
                         ev,
-                        selected=selected and flat_idx == self._cal_event_cursor,
+                        selected=selected and event_idx == self._cal_event_cursor,
                         prefix=prefix,
                     )
                 )
-                flat_idx += 1
         return "\n".join(lines)
 
     def _calendar_week_text(self, nav_line: str) -> str:

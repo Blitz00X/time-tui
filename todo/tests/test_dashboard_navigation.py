@@ -179,6 +179,53 @@ def test_calendar_event_navigation_and_delete(tmp_path: Path):
     asyncio.run(run())
 
 
+def test_calendar_day_defaults_to_08_through_18(tmp_path: Path):
+    app = TimeTuiApp(tmp_path)
+    body = app._calendar_body_text()
+
+    assert "08:00" in body
+    assert "18:00" in body
+    assert "07:00" not in body
+    assert "19:00" not in body
+
+
+def test_calendar_day_arrow_keys_scroll_to_full_day_bounds(tmp_path: Path):
+    async def run() -> None:
+        app = TimeTuiApp(tmp_path)
+
+        async with app.run_test(size=(100, 30)) as pilot:
+            app._pane = "calendar"
+            app._sync_everything()
+
+            await pilot.press("enter")
+            await pilot.press("down")
+            assert app._cal_inner_row == "events"
+            assert app._cal_day_start_hour == 8
+
+            for _ in range(20):
+                await pilot.press("down")
+
+            assert app._cal_day_start_hour == 13
+            body = app._calendar_body_text()
+            assert "13:00" in body
+            assert "23:00" in body
+            assert "08:00" not in body
+
+            for _ in range(20):
+                await pilot.press("up")
+
+            assert app._cal_day_start_hour == 0
+            body = app._calendar_body_text()
+            assert "00:00" in body
+            assert "10:00" in body
+            assert "18:00" not in body
+
+            await pilot.press("up")
+            assert app._cal_inner_row == "tabs"
+
+    asyncio.run(run())
+
+
 def test_calendar_week_view_lists_days(tmp_path: Path):
     iso = date(2026, 5, 27).isoformat()
     insert_event(tmp_path, iso, CalendarEvent("09:00", "09:30", "standup", "green"))
