@@ -43,6 +43,7 @@ from .modals.event_modal import EventFormResult, EventModal
 from .modals.modal import TaskModal
 from .modals.ns_modal import NewNamespaceModal
 from .modals.session_modal import SessionFormResult, SessionModal
+from .modals.confirm_modal import ConfirmModal
 from .full_calendar_screen import CalendarView, FullCalendarResult, FullCalendarScreen
 
 Pane = Literal["namespaces", "tasks", "tags", "calendar", "tracker"]
@@ -76,7 +77,6 @@ def weekday_full(idx: int) -> str:
     ][idx]
 
 
-_PRI_SYM = {"high": "!", "medium": "~", "low": "·"}
 _BIG_CLOCK_GLYPHS = {
     "0": [" ███ ", "█   █", "█   █", "█   █", " ███ "],
     "1": ["  █  ", " ██  ", "  █  ", "  █  ", " ███ "],
@@ -230,6 +230,7 @@ TagRow.-cursor { background: $primary-darken-3; }
 TaskRow { layout: horizontal; height: 1; padding: 0 1; width: 1fr; }
 TaskRow:hover { background: $surface-lighten-1; }
 TaskRow.-selected { background: $primary-darken-2; }
+.task-prefix { width: auto; color: $text-muted; content-align: left middle; }
 .task-cb { width: 4; content-align: left middle; }
 .task-pri { width: 3; content-align: left middle; }
 .task-text { width: 1fr; content-align: left middle; }
@@ -359,10 +360,56 @@ class TagRow(Static):
             k[1].update(str(count))
 
 
+_PRI_SYM = {"high": "!", "medium": "~", "low": "·"}
+
+
+def _has_children_in_list(tasks: list[Task], index: int) -> bool:
+    """True if tasks[index] has at least one deeper-indented follower."""
+    if index < 0 or index >= len(tasks):
+        return False
+    my_indent = tasks[index].indent
+    for nxt in tasks[index + 1:]:
+        if nxt.indent <= my_indent:
+            return False
+        if nxt.indent > my_indent:
+            return True
+    return False
+
+
+def _raw_index(tasks: list[Task], target: Task) -> int:
+    """Return index of *target* in *tasks* by id, or -1 if missing."""
+    for i, t in enumerate(tasks):
+        if t.id == target.id:
+            return i
+    return -1
+
+
+def _subtree_indices(tasks: list[Task], target_index: int) -> list[int]:
+    """Return indices of *target* plus every descendant in *tasks*."""
+    if target_index < 0 or target_index >= len(tasks):
+        return []
+    target_indent = tasks[target_index].indent
+    out = [target_index]
+    for i in range(target_index + 1, len(tasks)):
+        if tasks[i].indent > target_indent:
+            out.append(i)
+        else:
+            break
+    return out
+
+
 class TaskRow(Static):
-    def __init__(self, todo_task: Task, selected: bool) -> None:
+    def __init__(
+        self,
+        todo_task: Task,
+        selected: bool,
+        expanded: bool = True,
+        has_children: bool = False,
+    ) -> None:
         super().__init__()
         self._todo_task = todo_task
+        self._expanded = expanded
+        self._has_children = has_children
         if selected:
             self.add_class("-selected")
 
@@ -373,28 +420,48 @@ class TaskRow(Static):
             return "pri-doing"
         return f"pri-{t.priority.value}"
 
+    def _prefix(self, t: Task) -> str:
+        # Tree-style prefix: ▼ / ▶ for parents with children, └─ for children.
+        if t.indent == 0 and self._has_children:
+            return "▼ " if self._expanded else "▶ "
+        if t.indent == 0:
+            return ""
+        # Children get connector + indent guide
+        return "  " * (t.indent - 1) + "└─ "
+
     def compose(self) -> ComposeResult:
         t = self._todo_task
         c = self._tcls(t)
+        prefix_text = self._prefix(t)
+        yield Static(prefix_text, classes="task-prefix")
         yield Static("[x]" if t.done else "[ ]", classes="task-cb")
         yield Static(_PRI_SYM[t.priority.value], classes=f"task-pri {c}")
         yield Static(t.text, classes=f"task-text {c}")
         yield Static(t.display_tags if t.tags else "", classes="task-tags")
 
-    def refresh_from(self, todo_task: Task, selected: bool) -> None:
+    def refresh_from(
+        self,
+        todo_task: Task,
+        selected: bool,
+        expanded: bool = True,
+        has_children: bool = False,
+    ) -> None:
         self._todo_task = todo_task
+        self._expanded = expanded
+        self._has_children = has_children
         self.set_class(selected, "-selected")
         kids = list(self.query(Static))
-        if len(kids) < 4:
+        if len(kids) < 5:
             return
         t = todo_task
         c = self._tcls(t)
-        kids[0].update("[x]" if t.done else "[ ]")
-        kids[1].update(_PRI_SYM[t.priority.value])
-        kids[1].set_classes(f"task-pri {c}")
-        kids[2].update(t.text)
-        kids[2].set_classes(f"task-text {c}")
-        kids[3].update(t.display_tags if t.tags else "")
+        kids[0].update(self._prefix(t))
+        kids[1].update("[x]" if t.done else "[ ]")
+        kids[2].update(_PRI_SYM[t.priority.value])
+        kids[2].set_classes(f"task-pri {c}")
+        kids[3].update(t.text)
+        kids[3].set_classes(f"task-text {c}")
+        kids[4].update(t.display_tags if t.tags else "")
 
 
 class SearchModal(ModalScreen[Optional[str]]):
@@ -440,10 +507,16 @@ class TimeTuiApp(App):
         Binding("shift+tab", "tab_prev_pane", show=False, priority=True),
         Binding("right", "cursor_right", show=False, priority=True),
         Binding("left", "cursor_left", show=False, priority=True),
+        Binding("space", "toggle_expand", show=False),
         Binding("enter", "enter_pressed", show=False),
         Binding("a", "add_task", show=False),
+        Binding("A", "add_root_task", show=False),
         Binding("e", "edit_task", show=False),
         Binding("d", "delete_task", show=False),
+        Binding("pageup", "page_up", show=False),
+        Binding("pagedown", "page_down", show=False),
+        Binding("home", "cursor_home", show=False),
+        Binding("end", "cursor_end", show=False),
         Binding("s", "toggle_tracker_run", show=False),
         Binding("r", "reset_tracker", show=False),
         Binding("f", "cycle_filter", show=False),
@@ -589,7 +662,18 @@ class TimeTuiApp(App):
         if self._search_query:
             q = self._search_query.casefold()
             a = [t for t in a if q in t.text.casefold() or any(q in tg.casefold() for tg in t.tags)]
-        return list(a)
+        # Collapse filter: skip descendants of any task whose expanded=False.
+        result: list[Task] = []
+        skip_until_under = -1  # indent level to stay under while skipping
+        for t in a:
+            if skip_until_under >= 0:
+                if t.indent > skip_until_under:
+                    continue
+                skip_until_under = -1
+            result.append(t)
+            if not t.expanded:
+                skip_until_under = t.indent
+        return result
 
     def _chosen_task(self) -> Optional[Task]:
         rows = self._filtered_list()
@@ -611,10 +695,38 @@ class TimeTuiApp(App):
         self._sync_tags_box()
         self._sync_calendar_inner()
         self._sync_tracker()
+        self._scroll_cursor_into_view()
         self._sync_sessions_scroll()
 
     def _pane_has_inner_focus(self) -> bool:
         return self._inner_focus
+
+    def _scroll_cursor_into_view(self) -> None:
+        """Keep the selected TaskRow visible inside #task-list when the cursor moves."""
+        if self._pane != "tasks":
+            return
+        try:
+            pane = self.query_one("#task-list", ScrollableContainer)
+            rows = list(pane.query(TaskRow))
+        except Exception:
+            return
+        if not rows:
+            return
+        idx = max(0, min(self._cursor, len(rows) - 1))
+        target = rows[idx]
+        # Each TaskRow has fixed height=1, so its absolute offset is row index.
+        target_y = idx
+        viewport_h = pane.size.height if pane.size else 0
+        scroll_y = pane.scroll_y if pane.scroll_y is not None else 0
+        if viewport_h <= 0:
+            return
+        # Scroll up if cursor is above the visible region.
+        if target_y < scroll_y:
+            pane.scroll_y = target_y
+            return
+        # Scroll down if cursor is below the visible region.
+        if target_y >= scroll_y + viewport_h:
+            pane.scroll_y = target_y - viewport_h + 1
 
     def _exit_inner_focus(self) -> None:
         self._inner_focus = False
@@ -691,6 +803,9 @@ class TimeTuiApp(App):
                 "[yellow]↑↓[/] [dim]nav[/]  "
                 "[yellow]enter[/] [dim]select[/]  "
                 "[yellow]a[/] [dim]add[/]  "
+                "[yellow]A[/] [dim]add root[/]  "
+                "[yellow]space[/] [dim]expand[/]  "
+                "[yellow]PgUp[/]/[yellow]PgDn[/] [dim]page[/]  "
                 "[yellow]e[/] [dim]edit[/]  "
                 "[yellow]d[/] [dim]del[/]  "
                 "[yellow]s[/] [dim]start[/]  "
@@ -708,6 +823,9 @@ class TimeTuiApp(App):
                 "[yellow]↑↓[/] [dim]nav[/]  "
                 "[yellow]enter[/] [dim]select[/]  "
                 "[yellow]a[/] [dim]add[/]  "
+                "[yellow]A[/] [dim]add root[/]  "
+                "[yellow]space[/] [dim]expand[/]  "
+                "[yellow]PgUp[/]/[yellow]PgDn[/] [dim]page[/]  "
                 "[yellow]e[/] [dim]edit[/]  "
                 "[yellow]d[/] [dim]del[/]  "
                 "[yellow]s[/] [dim]start[/]  "
@@ -725,6 +843,7 @@ class TimeTuiApp(App):
                 "[yellow]↑↓[/] [dim]nav[/]  "
                 "[yellow]enter[/] [dim]ok[/]  "
                 "[yellow]a[/] [dim]add[/]  "
+                "[yellow]A[/] [dim]add root[/]  "
                 "[yellow]e[/] [dim]edit[/]  "
                 "[yellow]d[/] [dim]del[/]  "
                 "[yellow]s[/] [dim]go[/]  "
@@ -801,7 +920,12 @@ class TimeTuiApp(App):
         existed = list(pane.query(TaskRow))
         if len(existed) == len(visible):
             for i, (rw, tk) in enumerate(zip(existed, visible)):
-                rw.refresh_from(tk, i == self._cursor)
+                rw.refresh_from(
+                    tk,
+                    i == self._cursor,
+                    expanded=tk.expanded,
+                    has_children=_has_children_in_list(self._tasks, _raw_index(self._tasks, tk)),
+                )
         else:
             pane.remove_children()
             if not visible:
@@ -813,7 +937,14 @@ class TimeTuiApp(App):
                 )
             else:
                 for i, tk in enumerate(visible):
-                    pane.mount(TaskRow(tk, i == self._cursor))
+                    pane.mount(
+                        TaskRow(
+                            tk,
+                            i == self._cursor,
+                            expanded=tk.expanded,
+                            has_children=_has_children_in_list(self._tasks, _raw_index(self._tasks, tk)),
+                        )
+                    )
 
     def _sync_tags_box(self) -> None:
         counts: dict[str, int] = {}
@@ -1388,6 +1519,49 @@ class TimeTuiApp(App):
         self._persist()
         self._sync_everything()
 
+    def action_page_up(self) -> None:
+        rows = self._filtered_list()
+        if not rows:
+            return
+        page = max(1, (self.size.height or 24) - 6)
+        self._cursor = max(0, self._cursor - page)
+        self._sync_everything()
+
+    def action_page_down(self) -> None:
+        rows = self._filtered_list()
+        if not rows:
+            return
+        page = max(1, (self.size.height or 24) - 6)
+        self._cursor = min(len(rows) - 1, self._cursor + page)
+        self._sync_everything()
+
+    def action_cursor_home(self) -> None:
+        rows = self._filtered_list()
+        if not rows:
+            return
+        self._cursor = 0
+        self._sync_everything()
+
+    def action_cursor_end(self) -> None:
+        rows = self._filtered_list()
+        if not rows:
+            return
+        self._cursor = len(rows) - 1
+        self._sync_everything()
+
+    def action_toggle_expand(self) -> None:
+        """Toggle expand/collapse on the chosen task. Persists immediately."""
+        if self._pane != "tasks":
+            return
+        t = self._chosen_task()
+        if not t:
+            return
+        if not _has_children_in_list(self._tasks, _raw_index(self._tasks, t)):
+            return
+        t.expanded = not t.expanded
+        self._persist()
+        self._sync_everything()
+
     def action_cursor_up(self) -> None:
         if self._pane_has_inner_focus():
             if self._pane == "tracker":
@@ -1682,7 +1856,57 @@ class TimeTuiApp(App):
         if self._tracker_in_sessions():
             self.action_open_session_modal(None)
             return
-        self.push_screen(TaskModal(), callback=self._on_modal)
+        parent = self._chosen_task()
+        force_root = False
+        self._push_task_modal(parent, force_root)
+
+    def action_add_root_task(self) -> None:
+        if self._pane == "calendar" or self._tracker_in_sessions():
+            return
+        self._push_task_modal(None, force_root=True)
+
+    def _push_task_modal(
+        self,
+        parent: Optional[Task],
+        force_root: bool,
+        existing: Optional[Task] = None,
+    ) -> None:
+        def callback(result: Optional[Task]) -> None:
+            if not result:
+                return
+            if existing is not None:
+                self._replace_task(existing, result)
+                return
+            if force_root or parent is None:
+                result.indent = 0
+                self._tasks.append(result)
+            else:
+                result.indent = parent.indent + 1
+                idx = _raw_index(self._tasks, parent)
+                if idx < 0:
+                    self._tasks.append(result)
+                else:
+                    self._tasks.insert(idx + 1, result)
+            self._persist()
+            visible = self._filtered_list()
+            for i, t in enumerate(visible):
+                if t.id == result.id:
+                    self._cursor = i
+                    break
+            self._sync_everything()
+
+        modal = TaskModal(todo_task=existing) if existing else TaskModal()
+        self.push_screen(modal, callback=callback)
+
+    def _replace_task(self, existing: Task, replacement: Task) -> None:
+        for i, t in enumerate(self._tasks):
+            if t.id == existing.id:
+                replacement.indent = existing.indent
+                replacement.expanded = existing.expanded
+                self._tasks[i] = replacement
+                break
+        self._persist()
+        self._sync_everything()
 
     def action_edit_task(self) -> None:
         if self._calendar_in_events():
@@ -1698,7 +1922,7 @@ class TimeTuiApp(App):
         t = self._chosen_task()
         if not t:
             return
-        self.push_screen(TaskModal(todo_task=t), callback=self._on_modal)
+        self._push_task_modal(parent=None, force_root=False, existing=t)
 
     def action_delete_task(self) -> None:
         if self._calendar_in_events():
@@ -1713,28 +1937,53 @@ class TimeTuiApp(App):
         t = self._chosen_task()
         if not t:
             return
+        idx = _raw_index(self._tasks, t)
+        subtree = _subtree_indices(self._tasks, idx)
+        descendant_count = len(subtree) - 1
+        if descendant_count > 0:
+            self._confirm_delete_with_children(t, descendant_count)
+            return
+        # Leaf: delete immediately.
         self._tasks = [x for x in self._tasks if x.id != t.id]
         self._cursor = max(0, self._cursor - 1)
         self._persist()
         self._sync_everything()
 
+    def _confirm_delete_with_children(
+        self, target: Task, descendant_count: int
+    ) -> None:
+        """Open a confirm modal: cascade delete or orphan descendants?"""
+        prompt = (
+            f"'{target.text}' has {descendant_count} subtask"
+            f"{'s' if descendant_count != 1 else ''}.\n"
+            "Delete the whole subtree?"
+        )
+
+        def callback(answer: Optional[str]) -> None:
+            if answer != "yes":
+                return
+            idx = _raw_index(self._tasks, target)
+            subtree = _subtree_indices(self._tasks, idx)
+            ids_to_remove = {self._tasks[i].id for i in subtree}
+            self._tasks = [x for x in self._tasks if x.id not in ids_to_remove]
+            self._cursor = max(0, min(self._cursor, len(self._tasks) - 1))
+            self._persist()
+            self._sync_everything()
+            self.notify(
+                f"deleted {len(subtree)} task"
+                f"{'s' if len(subtree) != 1 else ''}",
+                timeout=2,
+            )
+
+        self.push_screen(ConfirmModal(prompt), callback=callback)
+
     def _on_modal(self, result: Optional[Task]) -> None:
+        # Legacy hook kept for compatibility with any external callers.
+        # The dashboard now uses _push_task_modal directly.
         if not result:
             return
-        replaced = False
-        for i, t in enumerate(self._tasks):
-            if t.id == result.id:
-                self._tasks[i] = result
-                replaced = True
-                break
-        if not replaced:
-            self._tasks.append(result)
+        self._tasks.append(result)
         self._persist()
-        visible = self._filtered_list()
-        for i, t in enumerate(visible):
-            if t.id == result.id:
-                self._cursor = i
-                break
         self._sync_everything()
 
     def _on_search(self, result: Optional[str]) -> None:
