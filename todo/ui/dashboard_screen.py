@@ -700,6 +700,7 @@ class TimeTuiApp(App):
                 "[yellow]t[/] [dim]tracker[/]  "
                 "[yellow]c[/] [dim]calendar[/]  "
                 "[yellow]n[/] [dim]namespace[/]  "
+                "[yellow]N[/] [dim]new ns[/]  "
                 "[yellow]q[/] [dim]quit[/]"
             )
         elif width >= 110:
@@ -716,6 +717,7 @@ class TimeTuiApp(App):
                 "[yellow]t[/] [dim]tracker[/]  "
                 "[yellow]c[/] [dim]cal[/]  "
                 "[yellow]n[/] [dim]ns[/]  "
+                "[yellow]N[/] [dim]new[/]  "
                 "[yellow]q[/] [dim]quit[/]"
             )
         else:
@@ -729,6 +731,7 @@ class TimeTuiApp(App):
                 "[yellow]r[/] [dim]reset[/]  "
                 "[yellow]f[/] [dim]filter[/]  "
                 "[yellow]/[/] [dim]find[/]  "
+                "[yellow]N[/] [dim]new ns[/]  "
                 "[yellow]q[/] [dim]quit[/]"
             )
         self.query_one("#footer-keys", Static).update(text)
