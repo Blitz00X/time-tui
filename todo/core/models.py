@@ -29,6 +29,8 @@ class Task:
     done: bool = False
     tags: list[str] = field(default_factory=list)
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    indent: int = 0
+    expanded: bool = True
 
     # ── derived helpers ───────────────────────────────────────────────
 
@@ -63,7 +65,8 @@ class Task:
         checkbox = "[x]" if self.done else "[ ]"
         priority_tag = f"#{self.priority.value}"
         tags_str = (" " + " ".join(self.tags)) if self.tags else ""
-        return f"* {checkbox} {self.text} {priority_tag}{tags_str}"
+        prefix = "  " * self.indent
+        return f"{prefix}* {checkbox} {self.text} {priority_tag}{tags_str}"
 
     def clone(self) -> Task:
         return Task(
@@ -72,4 +75,6 @@ class Task:
             done=self.done,
             tags=list(self.tags),
             id=self.id,
+            indent=self.indent,
+            expanded=self.expanded,
         )

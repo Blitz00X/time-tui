@@ -84,6 +84,11 @@ def parse_tasks(content: str) -> list[Task]:
                 in_completed = True
             continue
 
+        # ── indent detection ──────────────────────────────────────────
+        # Count leading spaces on the raw line BEFORE rstrip, since trailing
+        # spaces do not contribute to indent but may exist in user files.
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+
         # ── task line with checkbox ───────────────────────────────────
         m = _TASK_RE.match(line)
         if m:
@@ -94,6 +99,7 @@ def parse_tasks(content: str) -> list[Task]:
                 task.done = True
             else:
                 task.done = done
+            task.indent = indent // 2
             tasks.append(task)
             continue
 
@@ -103,6 +109,7 @@ def parse_tasks(content: str) -> list[Task]:
             rest = m2.group("rest")
             task = _parse_rest(rest, current_priority)
             task.done = in_completed
+            task.indent = indent // 2
             tasks.append(task)
 
     return tasks
