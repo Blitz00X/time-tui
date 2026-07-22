@@ -9,10 +9,12 @@ or text-format parsing on the agent side.
 Run via the installed entry point::
 
     todo-mcp --root /path/to/project
+    todo-mcp --root /path/to/project --transport streamable-http
     # or:
     TIME_TUI_ROOT=/path/to/project todo-mcp
 
-The server uses ``stdio`` transport by default (matches most MCP clients).
+The server uses ``stdio`` transport by default (matches most local MCP
+clients). ``streamable-http`` is available for remote clients and tunnels.
 """
 from __future__ import annotations
 
@@ -426,8 +428,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Project root (defaults to TIME_TUI_ROOT env or CWD).",
     )
     parser.add_argument(
-        "--transport", choices=("stdio",), default="stdio",
-        help="MCP transport (stdio only for now).",
+        "--transport", choices=("stdio", "streamable-http"), default="stdio",
+        help="MCP transport (default: stdio).",
+    )
+    parser.add_argument(
+        "--host", default="127.0.0.1",
+        help="HTTP bind host (streamable-http only; default: 127.0.0.1).",
+    )
+    parser.add_argument(
+        "--port", type=int, default=8000,
+        help="HTTP bind port (streamable-http only; default: 8000).",
+    )
+    parser.add_argument(
+        "--http-path", default="/mcp",
+        help="MCP endpoint path (streamable-http only; default: /mcp).",
     )
     args = parser.parse_args(argv)
 
@@ -447,6 +461,16 @@ def main(argv: list[str] | None = None) -> int:
 
     _PROJECT_ROOT = root
     storage.ensure_todo_dir(root)
+
+    if args.transport == "streamable-http":
+        if not 1 <= args.port <= 65535:
+            parser.error("--port must be between 1 and 65535")
+        if not args.http_path.startswith("/"):
+            parser.error("--http-path must start with '/'")
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+        mcp.settings.streamable_http_path = args.http_path
+
     mcp.run(transport=args.transport)
     return 0
 

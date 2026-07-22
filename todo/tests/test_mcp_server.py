@@ -76,6 +76,33 @@ def test_lists_all_expected_tools() -> None:
     assert not missing, f"missing tools: {missing}"
 
 
+def test_main_keeps_stdio_as_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    transports: list[str] = []
+    monkeypatch.setattr(srv.mcp, "run", lambda *, transport: transports.append(transport))
+
+    assert srv.main(["--root", str(tmp_path)]) == 0
+    assert transports == ["stdio"]
+
+
+def test_main_configures_streamable_http(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transports: list[str] = []
+    monkeypatch.setattr(srv.mcp, "run", lambda *, transport: transports.append(transport))
+
+    assert srv.main([
+        "--root", str(tmp_path),
+        "--transport", "streamable-http",
+        "--host", "127.0.0.1",
+        "--port", "8765",
+        "--http-path", "/time-tui-mcp",
+    ]) == 0
+    assert transports == ["streamable-http"]
+    assert srv.mcp.settings.host == "127.0.0.1"
+    assert srv.mcp.settings.port == 8765
+    assert srv.mcp.settings.streamable_http_path == "/time-tui-mcp"
+
+
 # ── task tools ───────────────────────────────────────────────────────────────
 
 def test_namespace_create_and_list(project: Path) -> None:

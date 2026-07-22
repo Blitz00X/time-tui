@@ -72,3 +72,30 @@ root itself:
 All list-shaped returns are wrapped in a dict (`{"tasks": [...]}`,
 `{"events": [...]}`, `{"sessions": [...]}`, `{"namespaces": [...]}`) so the
 client receives a single structured payload per call.
+
+## ChatGPT web (Streamable HTTP)
+
+ChatGPT web cannot launch the local stdio command directly. Start the same
+server with the optional Streamable HTTP transport instead:
+
+```bash
+/home/kutay/Documents/GitHub/time-tui/.venv/bin/todo-mcp \
+  --root /home/kutay/Documents/GitHub/time-tui \
+  --transport streamable-http
+```
+
+The MCP endpoint is then `http://127.0.0.1:8000/mcp`. It intentionally binds
+to loopback by default, so it is not exposed to the LAN or public internet.
+Connect this endpoint to ChatGPT using OpenAI Secure MCP Tunnel, then enter the
+tunnel-provided HTTPS endpoint in ChatGPT under **Settings → Apps → Create**.
+
+The port and endpoint path can be changed without affecting stdio clients:
+
+```bash
+todo-mcp --root /path/to/project --transport streamable-http \
+  --port 8765 --http-path /mcp
+```
+
+Do not bind the server to `0.0.0.0` or expose it publicly without adding
+authentication and HTTPS in front of it. The tools can modify task, calendar,
+and session data.
