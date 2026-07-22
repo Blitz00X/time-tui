@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 todo = "todo.cli:main"
+todo-tui = "todo.tui:main"
 todo-mcp = "todo.mcp_server:main"
 
 [project.optional-dependencies]
