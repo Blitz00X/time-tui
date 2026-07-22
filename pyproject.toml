@@ -15,6 +15,12 @@ dependencies = [
 
 [project.scripts]
 todo = "todo.cli:main"
+todo-mcp = "todo.mcp_server:main"
+
+[project.optional-dependencies]
+mcp = [
+    "mcp>=1.0.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -23,4 +29,5 @@ include = ["todo*"]
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "mcp>=1.0.0",
 ]
