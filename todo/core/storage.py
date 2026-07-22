@@ -1,17 +1,33 @@
 """
 File I/O for tui-md-todo.
+
 Supports:
   - Root tasks.md  (the default namespace)
   - Namespace dirs: .todo/<name>/tasks.md
+  - Calendar log: .todo/calendar.md (Markdown)
+  - Session log:  .todo/sessions.md  (Markdown)
+
+Locking: every read-modify-write that crosses the parser boundary MUST go
+through ``locked_write`` so concurrent CLI + TUI writers don't clobber each
+other. The lock file lives at ``.todo/lock`` and uses POSIX flock semantics.
 """
 from __future__ import annotations
-import os, shutil, tempfile
+import contextlib
+import fcntl
+import os
+import shutil
+import tempfile
+import time
 from pathlib import Path
 from .models import Task
 from .parser import parse_tasks, build_markdown, DEFAULT_TEMPLATE
 
 _FILENAME  = "tasks.md"
 _TODO_DIR  = ".todo"          # hidden dir that holds all namespaces
+_CAL_FILENAME = "calendar.md"
+_SES_FILENAME = "sessions.md"
+_LOCK_FILENAME = "lock"
+_LOCK_TIMEOUT_S = 5.0
 
 
 # ── namespace helpers ─────────────────────────────────────────────────────────
@@ -111,3 +127,98 @@ def ensure_gitignore(root: Path) -> None:
             if not content.endswith("\n"):
                 f.write("\n")
             f.write(".time-tui/\n")
+
+
+# ── locking ───────────────────────────────────────────────────────────────────
+
+def todo_dir(root: Path) -> Path:
+    """Absolute path to the .todo dir for a project root."""
+    return root / _TODO_DIR
+
+
+def lock_path(root: Path) -> Path:
+    return todo_dir(root) / _LOCK_FILENAME
+
+
+def calendar_path(root: Path) -> Path:
+    return todo_dir(root) / _CAL_FILENAME
+
+
+def sessions_md_path(root: Path) -> Path:
+    return todo_dir(root) / _SES_FILENAME
+
+
+def ensure_todo_dir(root: Path) -> Path:
+    """Create .todo/ if missing and return its path."""
+    td = todo_dir(root)
+    td.mkdir(parents=True, exist_ok=True)
+    return td
+
+
+@contextlib.contextmanager
+def file_lock(root: Path, *, timeout: float | None = None, blocking: bool = True):
+    """POSIX flock wrapper around ``.todo/lock``.
+
+    ``timeout`` is a wall-clock limit in seconds. ``blocking=False`` raises
+    ``BlockingIOError`` immediately if the lock is held. The lock is released
+    when the context exits.
+    """
+    ensure_todo_dir(root)
+    path = lock_path(root)
+    fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        if blocking:
+            deadline = time.monotonic() + (timeout if timeout is not None else _LOCK_TIMEOUT_S)
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(f"could not acquire {path} within {timeout}s")
+                    time.sleep(0.05)
+        else:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield fd
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        os.close(fd)
+
+
+def locked_write_to(path: Path, mutate, *, root: Path | None = None) -> None:
+    """Lock the project, mutate a file, write atomically.
+
+    ``path`` must live under ``.todo/`` of some project root. ``root`` defaults
+    to ``path.parent.parent`` (i.e. ``.todo/..``). If ``path`` does not exist
+    yet, an empty string is passed to ``mutate``.
+    """
+    if root is None:
+        # path like <root>/.todo/<name>/tasks.md or <root>/.todo/calendar.md
+        # walk up two levels to find the project root (the dir containing .todo).
+        candidate = path.parent
+        while candidate != candidate.parent and candidate.name != _TODO_DIR:
+            candidate = candidate.parent
+        if candidate.name == _TODO_DIR:
+            root = candidate.parent
+        else:
+            raise ValueError(f"could not infer project root from {path}")
+    current = path.read_text(encoding="utf-8") if path.exists() else ""
+    new_content = mutate(current)
+    with file_lock(root):
+        _atomic_write(path, new_content)
+
+
+def tasks_md_for(root: Path) -> Path:
+    """Default tasks file location (legacy helper retained for compatibility)."""
+    return root / _FILENAME
+
+
+def file_mtime(path: Path) -> float:
+    """Return mtime as float; 0 if the file doesn't exist."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
