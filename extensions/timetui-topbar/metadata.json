@@ -1,0 +1,8 @@
+{
+  "uuid": "timetui-topbar@kutay",
+  "name": "time-tui Tracker",
+  "description": "Show the active time-tui tracker session in the top bar.",
+  "version": 1,
+  "shell-version": ["45", "46", "47"],
+  "session-modes": ["user", "wayland", "x11"]
+}
