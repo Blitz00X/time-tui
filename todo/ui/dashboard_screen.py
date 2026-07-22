@@ -33,11 +33,17 @@ from ..core.dashboard_io import (
 from ..core.models import Priority, Task
 from ..core.storage import (
     create_namespace,
+    file_mtime,
+    calendar_path,
+    sessions_md_path,
     delete_namespace,
     list_namespaces,
     load_tasks,
     namespace_path,
     save_tasks,
+    locked_write_to,
+    _atomic_write,
+    _TODO_DIR,
 )
 from .modals.event_modal import EventFormResult, EventModal
 from .modals.modal import TaskModal
@@ -613,6 +619,10 @@ class TimeTuiApp(App):
         seed_dashboard_demo_if_empty(self._root)
         self._reload_ns()
         self._load_ns_keep_filter()
+        # Track last-seen mtimes for the CLI-adapter Markdown files so the
+        # dashboard can pick up external edits (agent writes via the CLI).
+        self._last_calendar_md_mtime = file_mtime(calendar_path(self._root))
+        self._last_sessions_md_mtime = file_mtime(sessions_md_path(self._root))
         self.set_interval(1.0, self._every_tick)
         self.call_after_refresh(self._sync_everything)
 
@@ -1280,6 +1290,16 @@ class TimeTuiApp(App):
 
     def _every_tick(self) -> None:
         self._paint_header()
+        # Watch the CLI-adapter Markdown files for external changes.
+        cal_mtime = file_mtime(calendar_path(self._root))
+        if cal_mtime != self._last_calendar_md_mtime:
+            self._last_calendar_md_mtime = cal_mtime
+            # Calendar refresh is handled by the existing tab render path
+            # when calendar_io is migrated; until then this is a no-op signal.
+        sess_mtime = file_mtime(sessions_md_path(self._root))
+        if sess_mtime != self._last_sessions_md_mtime:
+            self._last_sessions_md_mtime = sess_mtime
+            self._sync_sessions_scroll()
         if self._cal_tab == "day" and self._cal_date == date.today():
             self._sync_calendar_inner()
         if not self._tr_running:
