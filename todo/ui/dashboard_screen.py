@@ -31,6 +31,12 @@ from ..core.dashboard_io import (
     update_session_at,
 )
 from ..core.models import Priority, Task
+from ..core.dbus_service import (
+    DBusService,
+    TrackerAccessor,
+    TrackerState,
+)
+from ..core.notify import notify as desktop_notify
 from ..core.storage import (
     create_namespace,
     file_mtime,
@@ -578,6 +584,15 @@ class TimeTuiApp(App):
         self._session_rows: list[dict] = []
         self._session_cursor = 0
 
+        # DBus service for the GNOME top bar extension. Wired up in
+        # on_mount; torn down in on_unmount. Graceful: start() returns
+        # False when DBus is unavailable and the TUI keeps running.
+        self._dbus_service: DBusService = DBusService()
+        self._dbus_tracking_paused: bool = False
+        # Track which milestones we've already notified on (to avoid spam).
+        self._pomo_notified_half = False
+        self._pomo_notified_five = False
+
     def compose(self) -> ComposeResult:
         with Vertical(id="body"):
             with Vertical(id="main-stack"):
@@ -625,6 +640,17 @@ class TimeTuiApp(App):
         self._last_sessions_md_mtime = file_mtime(sessions_md_path(self._root))
         self.set_interval(1.0, self._every_tick)
         self.call_after_refresh(self._sync_everything)
+        # DBus service: starts a daemon thread that exports the active
+        # tracker session state. start() returns False gracefully if DBus
+        # is unavailable (no display, SSH session, headless).
+        self._dbus_service.set_root(self._root)
+        self._dbus_service.bind_accessor(_DashboardTrackerAccessor(self))
+        if self._dbus_service.start():
+            self._dbus_service.publish_state(self._dbus_tracker_state())
+
+    def on_unmount(self) -> None:
+        """Clean up the DBus service when the dashboard is closed."""
+        self._dbus_service.stop()
 
     def on_resize(self) -> None:
         self._paint_header()
@@ -1300,6 +1326,36 @@ class TimeTuiApp(App):
         if sess_mtime != self._last_sessions_md_mtime:
             self._last_sessions_md_mtime = sess_mtime
             self._sync_sessions_scroll()
+
+        # Pomodoro milestone notifications. We fire once per session so
+        # the user doesn't get spammed if TUI re-renders.
+        if self._tr_kind == "pomodoro" and self._tr_running:
+            half = POMO_LEN // 2
+            if not self._pomo_notified_half and self._tr_remain_s <= half:
+                self._pomo_notified_half = True
+                desktop_notify(
+                    "Pomodoro halfway",
+                    "Yarısı kaldı.",
+                    urgency="low",
+                )
+            if not self._pomo_notified_five and self._tr_remain_s <= 5 * 60:
+                self._pomo_notified_five = True
+                desktop_notify(
+                    "Pomodoro 5 min",
+                    "Beş dakika kaldı.",
+                    urgency="normal",
+                )
+        elif self._tr_kind != "pomodoro":
+            # Reset flags when switching mode.
+            self._pomo_notified_half = False
+            self._pomo_notified_five = False
+
+        # Push tracker state to the DBus service (if running). The service
+        # has its own heartbeat, so we don't need to call publish_state
+        # every tick — tick() re-reads at heartbeat intervals. We do call
+        # publish_state on transitions (start/pause/stop) explicitly.
+        self._dbus_service.tick()
+
         if self._cal_tab == "day" and self._cal_date == date.today():
             self._sync_calendar_inner()
         if not self._tr_running:
@@ -1312,11 +1368,14 @@ class TimeTuiApp(App):
                 self._tr_remain_s -= 1
             if self._tr_remain_s <= 0 and self._tr_kind == "pomodoro":
                 self._finish_pomo_work()
+                self._dbus_service.publish_state(self._dbus_tracker_state())
                 return
             if self._tr_remain_s <= 0 and self._tr_kind == "timer":
                 self.notify("Timer finished")
+                desktop_notify("Timer finished", urgency="normal")
                 self._tr_running = False
                 self._tr_remain_s = self._timer_target_s
+                self._dbus_service.publish_state(self._dbus_tracker_state())
         self._sync_tracker()
 
     def _tracker_elapsed_secs(self) -> int:
@@ -2054,3 +2113,148 @@ class TimeTuiApp(App):
 
     def action_quit_app(self) -> None:
         self.exit()
+
+
+# ── DBus integration ────────────────────────────────────────────────────────
+
+class _DashboardTrackerAccessor(TrackerAccessor):
+    """Adapts the Dashboard's tracker fields to the DBus service protocol.
+
+    Reads snapshot the current state. Pause/Resume/Stop call the same
+    methods the user would invoke via keybindings, but routed through the
+    DBus service from a different thread.
+    """
+
+    def __init__(self, dashboard) -> None:  # type: ignore[no-untyped-def]
+        super().__init__()
+        self._dashboard = dashboard
+
+    def read_state(self) -> TrackerState:
+        return self._dashboard._dbus_tracker_state()
+
+    def list_sessions(self, date_str: str) -> list[dict]:
+        """Read today's session log from .todo/sessions.md."""
+        from ..core import sessions_parser, storage
+        root = self._dashboard._root
+        path = storage.sessions_md_path(root)
+        if not path.exists():
+            return []
+        text = path.read_text(encoding="utf-8")
+        parsed = sessions_parser.parse_sessions(text)
+        from datetime import date as _date
+        iso = date_str or _date.today().isoformat()
+        try:
+            iso = sessions_parser.normalize_iso_day(iso)
+        except ValueError:
+            return []
+        out: list[dict] = []
+        for entry in parsed.get(iso, []):
+            out.append({
+                "date": iso,
+                "start": entry.start,
+                "end": entry.end,
+                "label": entry.label,
+                "duration_min": entry.duration_min(),
+            })
+        return out
+
+    def pause(self) -> bool:
+        return self._dashboard._dbus_pause()
+
+    def resume(self) -> bool:
+        return self._dashboard._dbus_resume()
+
+    def stop(self) -> bool:
+        return self._dashboard._dbus_stop()
+
+
+def _dbus_state_for_dashboard(dashboard) -> TrackerState:  # type: ignore[no-untyped-def]
+    """Build a TrackerState from the dashboard's tracker fields.
+
+    Bound to the dashboard instance as ``_dbus_tracker_state`` at runtime
+    (set up via a small monkey-patch in on_mount so tests can override).
+    """
+    if not dashboard._tr_running and dashboard._tr_kind != "stopwatch":
+        # No active session.
+        if dashboard._tr_kind == "pomodoro":
+            label = "Pomodoro ready"
+        elif dashboard._tr_kind == "timer":
+            label = "Timer ready"
+        else:
+            label = ""
+        return TrackerState(active=False, kind=dashboard._tr_kind, label=label)
+    # Active session in progress.
+    task = dashboard._chosen_task()
+    label = task.text[:80] if task else "focus"
+    duration = dashboard._timer_target_s
+    if dashboard._tr_kind == "pomodoro":
+        duration = POMO_LEN
+    elif dashboard._tr_kind == "stopwatch":
+        duration = max(dashboard._sw_elapsed_s, 0)
+    elapsed = duration - max(0, dashboard._tr_remain_s)
+    progress = 0.0
+    if duration > 0:
+        progress = min(1.0, max(0.0, elapsed / duration))
+    started_at = ""
+    # We don't track absolute started_at in the TUI state; the service
+    # consumer can compute relative time from remaining + duration.
+    return TrackerState(
+        active=True,
+        kind=dashboard._tr_kind,
+        label=label,
+        namespace=dashboard._active_ns,
+        started_at=started_at,
+        duration_sec=duration,
+        remaining_sec=max(0, dashboard._tr_remain_s),
+        elapsed_sec=elapsed,
+        progress=progress,
+        paused=dashboard._dbus_tracking_paused,
+    )
+
+
+def _dbus_pause(dashboard) -> bool:  # type: ignore[no-untyped-def]
+    dashboard._dbus_tracking_paused = True
+    dashboard._tr_running = False
+    dashboard.notify("Tracker paused (via DBus)")
+    dashboard._dbus_service.publish_state(dashboard._dbus_tracker_state())
+    return True
+
+
+def _dbus_resume(dashboard) -> bool:  # type: ignore[no-untyped-def]
+    dashboard._dbus_tracking_paused = False
+    dashboard._tr_running = True
+    dashboard.notify("Tracker resumed (via DBus)")
+    dashboard._dbus_service.publish_state(dashboard._dbus_tracker_state())
+    return True
+
+
+def _dbus_stop(dashboard) -> bool:  # type: ignore[no-untyped-def]
+    dashboard._dbus_tracking_paused = False
+    dashboard._tr_running = False
+    dashboard._sw_elapsed_s = 0
+    dashboard._tr_remain_s = (
+        POMO_LEN if dashboard._tr_kind == "pomodoro" else dashboard._timer_target_s
+    )
+    dashboard.notify("Tracker stopped (via DBus)")
+    dashboard._dbus_service.publish_state(dashboard._dbus_tracker_state())
+    return True
+
+
+def _bind_dbus_helpers_to_dashboard() -> None:
+    """Bind the module-level DBus helpers to TimeTuiApp at import time.
+
+    The dashboard class is ``TimeTuiApp`` (subclass of Textual's ``App``),
+    defined earlier in this module. We attach the helpers as bound methods
+    so that ``self._dbus_tracker_state()`` etc. resolve cleanly during
+    runtime and tooling sees real method definitions.
+    """
+    cls = globals().get("TimeTuiApp")
+    if cls is None:
+        return
+    cls._dbus_tracker_state = _dbus_state_for_dashboard  # type: ignore[attr-defined]
+    cls._dbus_pause = _dbus_pause  # type: ignore[attr-defined]
+    cls._dbus_resume = _dbus_resume  # type: ignore[attr-defined]
+    cls._dbus_stop = _dbus_stop  # type: ignore[attr-defined]
+
+
+_bind_dbus_helpers_to_dashboard()

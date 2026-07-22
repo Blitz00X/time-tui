@@ -41,29 +41,47 @@ def test_file_lock_acquires_and_releases(tmp_path: Path) -> None:
 
 def test_lock_blocks_second_acquirer(tmp_path: Path) -> None:
     """A second acquirer in another thread should wait, then succeed after the first releases."""
-    second_started = threading.Event()
-    second_finished = threading.Event()
+    holder_acquired = threading.Event()
+    holder_released = threading.Event()
+    second_can_proceed = threading.Event()
     second_acquired = threading.Event()
 
+    def holder():
+        with storage.file_lock(tmp_path, timeout=5.0):
+            holder_acquired.set()
+            # Hold until the test signals us to release.
+            holder_released.wait(timeout=5.0)
+
     def second_lock():
-        second_started.set()
+        # Wait until the holder has actually taken the lock so the
+        # blocking is unambiguous.
+        holder_acquired.wait(timeout=5.0)
+        # Small grace period so the holder's LOCK_EX is fully registered.
+        time.sleep(0.05)
         with storage.file_lock(tmp_path, timeout=5.0):
             second_acquired.set()
-        second_finished.set()
+            second_can_proceed.wait(timeout=2.0)
 
-    t = threading.Thread(target=second_lock)
-    t.start()
-    # Give the second thread a moment to start, then we hold the lock.
-    second_started.wait(timeout=1.0)
-    with storage.file_lock(tmp_path):
-        # Second thread should be blocked. We expect the timeout flag to fire
-        # *after* we release, not before. So second_acquired must not be set yet.
-        time.sleep(0.2)
-        assert not second_acquired.is_set()
-    # After our release, the second thread should acquire and finish.
-    second_acquired.wait(timeout=2.0)
-    second_finished.wait(timeout=2.0)
-    t.join(timeout=2.0)
+    holder_thread = threading.Thread(target=holder, daemon=True)
+    second_thread = threading.Thread(target=second_lock, daemon=True)
+    holder_thread.start()
+    second_thread.start()
+
+    # Wait for the holder to take the lock, then confirm the second
+    # acquirer is blocked.
+    assert holder_acquired.wait(timeout=2.0)
+    time.sleep(0.3)
+    assert not second_acquired.is_set(), (
+        "second acquirer unexpectedly took the lock while holder held it"
+    )
+
+    # Release the holder; the second acquirer should now get it.
+    holder_released.set()
+    holder_thread.join(timeout=2.0)
+
+    assert second_acquired.wait(timeout=2.0), "second acquirer never got the lock"
+    second_can_proceed.set()
+    second_thread.join(timeout=2.0)
 
 
 def test_lock_timeout_raises(tmp_path: Path) -> None:

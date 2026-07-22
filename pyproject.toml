@@ -21,6 +21,8 @@ todo-mcp = "todo.mcp_server:main"
 mcp = [
     "mcp>=1.0.0",
 ]
+# DBus integration uses ``dbus-send`` (ships with every GNOME install),
+# no extra Python dependencies required.
 
 [tool.setuptools.packages.find]
 where = ["."]
